@@ -1,0 +1,55 @@
+name: Run Tests
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup go
+        uses: actions/setup-go@v3
+        with:
+          go-version: '^1.16'
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Setup golangci-lint
+        uses: golangci/golangci-lint-action@v3.3.1
+        with:
+          version: v1.50.1
+          args: --verbose
+  test:
+    needs: lint
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        go: [1.16, 1.17, 1.18, 1.19]
+    name: ${{ matrix.os }} @ Go ${{ matrix.go }}
+    runs-on: ${{ matrix.os }}
+    env:
+      GOPROXY: https://proxy.golang.org
+    steps:
+      - name: Set up Go ${{ matrix.go }}
+        uses: actions/setup-go@v3
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+
+      - name: Install dependencies
+        run: go get .
+
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Run Tests
+        run: go test -v ./...
