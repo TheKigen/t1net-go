@@ -42,9 +42,6 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
 
-      - name: Install dependencies
-        run: go get .
-
       - name: Checkout Code
         uses: actions/checkout@v3
         with:
