@@ -39,8 +39,8 @@ func TestWritePascalString(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Compare([]byte{7, 'T', 'e', 's', 't', 'i', 'n', 'g'}, buffer.Bytes()) != 0 {
-		t.Fatalf("bytes.Compare failed: %v", buffer.Bytes())
+	if !bytes.Equal([]byte{7, 'T', 'e', 's', 't', 'i', 'n', 'g'}, buffer.Bytes()) {
+		t.Fatalf("bytes.Equal failed: %v", buffer.Bytes())
 	}
 }
 
@@ -65,7 +65,7 @@ func TestWriteAddressPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Compare([]byte{6, 12, 13, 14, 15, 97, 109}, buffer.Bytes()) != 0 {
-		t.Fatalf("bytes Compare failed: %v", buffer.Bytes())
+	if !bytes.Equal([]byte{6, 12, 13, 14, 15, 97, 109}, buffer.Bytes()) {
+		t.Fatalf("bytes.Equal failed: %v", buffer.Bytes())
 	}
 }

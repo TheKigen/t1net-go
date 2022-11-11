@@ -120,7 +120,7 @@ func (m *MasterServer) Query() error {
 
 		if !pingCalculated {
 			pingCalculated = true
-			m.ping = time.Now().Sub(m.queryTime)
+			m.ping = time.Since(m.queryTime)
 		}
 
 		reader := bytes.NewReader(recvBuf[0:n])
@@ -208,11 +208,8 @@ func (m *MasterServer) Query() error {
 
 		m.serverCount += serverCount
 
-		ip := make(net.IP, 4)
-		var port uint16
-
 		for i := uint16(0); i < serverCount; i++ {
-			ip, port, err = ReadAddressPort(reader)
+			ip, port, err := ReadAddressPort(reader)
 			if err != nil {
 				return err
 			}

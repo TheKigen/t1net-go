@@ -65,7 +65,7 @@ func TestGameServer(t *testing.T) {
 		expected[1] = readBuffer[1]
 		expected[2] = readBuffer[2]
 
-		if bytes.Compare(expected, readBuffer[0:n]) != 0 {
+		if !bytes.Equal(expected, readBuffer[0:n]) {
 			t.Error(readBuffer)
 			return
 		}

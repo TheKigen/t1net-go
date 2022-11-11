@@ -223,7 +223,7 @@ func (g *GameServer) Query() error {
 		return err
 	}
 
-	g.ping = time.Now().Sub(g.queryTime)
+	g.ping = time.Since(g.queryTime)
 
 	if !addr.IP.Equal(s.IP) || addr.Port != s.Port {
 		return fmt.Errorf("t1net.GameServer.Query: Reply address mismatch: %s != %s", s.String(), addr.String())

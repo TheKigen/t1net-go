@@ -65,7 +65,7 @@ func TestMasterServer(t *testing.T) {
 		expected[4] = readBuffer[4]
 		expected[5] = readBuffer[5]
 
-		if bytes.Compare(expected, readBuffer[0:n]) != 0 {
+		if !bytes.Equal(expected, readBuffer[0:n]) {
 			t.Error(readBuffer)
 			return
 		}
