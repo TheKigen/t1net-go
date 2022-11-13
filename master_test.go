@@ -151,7 +151,7 @@ func TestMasterServer(t *testing.T) {
 		}
 	}()
 
-	err = master.Query()
+	err = master.Query(0, "")
 	if err != nil {
 		t.Fatal(err)
 	}

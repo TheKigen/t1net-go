@@ -71,6 +71,12 @@ func (g *GameServer) Ping() time.Duration {
 	return g.ping
 }
 
+func (g *GameServer) QueryTime() time.Time {
+	g.mutex.RLock()
+	defer g.mutex.RUnlock()
+	return g.queryTime
+}
+
 func (g *GameServer) Name() string {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
@@ -173,24 +179,38 @@ func (g *GameServer) Players() []Player {
 	return g.players
 }
 
-func (g *GameServer) Query() error {
-	g.mutex.Lock()
-	defer g.mutex.Unlock()
+func (g *GameServer) Query(timeout time.Duration, localAddress string) error {
+	if timeout == 0 {
+		timeout = 5 * time.Second
+	}
 
-	s, err := net.ResolveUDPAddr("udp4", g.address)
+	var localAddr *net.UDPAddr
+	var err error
+
+	if len(localAddress) != 0 {
+		localAddr, err = net.ResolveUDPAddr("udp4", localAddress)
+		if err != nil {
+			return err
+		}
+	}
+
+	remoteAddr, err := net.ResolveUDPAddr("udp4", g.address)
 	if err != nil {
 		return err
 	}
 
-	g.ip = s.IP
-	g.port = s.Port
+	g.mutex.Lock()
+	defer g.mutex.Unlock()
+
+	g.ip = remoteAddr.IP
+	g.port = remoteAddr.Port
 	g.numTeams = 0
 	g.numPlayers = 0
 	g.maxPlayers = 0
 	g.teams = nil
 	g.players = nil
 
-	c, err := net.DialUDP("udp4", nil, s)
+	c, err := net.DialUDP("udp4", localAddr, remoteAddr)
 	if err != nil {
 		return err
 	}
@@ -214,7 +234,7 @@ func (g *GameServer) Query() error {
 	}
 
 	readBuffer := make([]byte, 2048)
-	err = c.SetDeadline(time.Now().Add(5 * time.Second))
+	err = c.SetDeadline(time.Now().Add(timeout))
 	if err != nil {
 		return err
 	}
@@ -225,8 +245,8 @@ func (g *GameServer) Query() error {
 
 	g.ping = time.Since(g.queryTime)
 
-	if !addr.IP.Equal(s.IP) || addr.Port != s.Port {
-		return fmt.Errorf("t1net.GameServer.Query: Reply address mismatch: %s != %s", s.String(), addr.String())
+	if !addr.IP.Equal(remoteAddr.IP) || addr.Port != remoteAddr.Port {
+		return fmt.Errorf("t1net.GameServer.Query: Reply address mismatch: %s != %s", remoteAddr.String(), addr.String())
 	}
 
 	if n < 20 {
