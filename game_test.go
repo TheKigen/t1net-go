@@ -123,7 +123,7 @@ func TestGameServer(t *testing.T) {
 		}
 	}()
 
-	err = game.Query()
+	err = game.Query(0, "")
 	if err != nil {
 		t.Fatal(err)
 	}

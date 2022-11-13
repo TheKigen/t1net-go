@@ -40,6 +40,18 @@ type MasterServer struct {
 	totalPackets int
 }
 
+func (m *MasterServer) Ping() time.Duration {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	return m.ping
+}
+
+func (m *MasterServer) QueryTime() time.Time {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	return m.queryTime
+}
+
 func (m *MasterServer) Name() string {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -64,21 +76,35 @@ func (m *MasterServer) Servers() []string {
 	return m.servers
 }
 
-func (m *MasterServer) Query() error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
+func (m *MasterServer) Query(timeout time.Duration, localAddress string) error {
+	if timeout == 0 {
+		timeout = 5 * time.Second
+	}
 
-	s, err := net.ResolveUDPAddr("udp4", m.address)
+	var localAddr *net.UDPAddr
+	var err error
+
+	if len(localAddress) != 0 {
+		localAddr, err = net.ResolveUDPAddr("udp4", localAddress)
+		if err != nil {
+			return err
+		}
+	}
+
+	remoteAddr, err := net.ResolveUDPAddr("udp4", m.address)
 	if err != nil {
 		return err
 	}
 
-	m.ip = s.IP
-	m.port = s.Port
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	m.ip = remoteAddr.IP
+	m.port = remoteAddr.Port
 	m.serverCount = 0
 	m.servers = nil
 
-	c, err := net.DialUDP("udp4", nil, s)
+	c, err := net.DialUDP("udp4", localAddr, remoteAddr)
 	if err != nil {
 		return err
 	}
@@ -105,7 +131,7 @@ func (m *MasterServer) Query() error {
 	recvBuf := make([]byte, 1024)
 	m.totalPackets = 1
 	for p := 0; p < m.totalPackets; p++ {
-		err := c.SetDeadline(time.Now().Add(5 * time.Second))
+		err := c.SetDeadline(time.Now().Add(timeout))
 		if err != nil {
 			return err
 		}
@@ -114,8 +140,8 @@ func (m *MasterServer) Query() error {
 			return err
 		}
 
-		if !addr.IP.Equal(s.IP) || addr.Port != s.Port {
-			return fmt.Errorf("t1net.MasterServer.Query: Reply address mismatch: %s != %s", s.String(), addr.String())
+		if !addr.IP.Equal(remoteAddr.IP) || addr.Port != remoteAddr.Port {
+			return fmt.Errorf("t1net.MasterServer.Query: Reply address mismatch: %s != %s", remoteAddr.String(), addr.String())
 		}
 
 		if !pingCalculated {
