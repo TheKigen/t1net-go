@@ -358,9 +358,7 @@ func (g *GameServer) Query(timeout time.Duration, localAddress string) error {
 	if err != nil {
 		return err
 	}
-
-	g.teams = nil
-
+	
 	for i := uint8(0); i < g.numTeams; i++ {
 		teamName, err := ReadPascalString(reader)
 		if err != nil {
