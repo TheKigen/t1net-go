@@ -65,138 +65,141 @@ type GameServer struct {
 	players           []Player
 }
 
-func (g *GameServer) Ping() time.Duration {
+func (g *GameServer) Ping() (ping time.Duration) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 	return g.ping
 }
 
-func (g *GameServer) QueryTime() time.Time {
+func (g *GameServer) QueryTime() (queryTime time.Time) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 	return g.queryTime
 }
 
-func (g *GameServer) Name() string {
+func (g *GameServer) Name() (name string) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 	return g.name
 }
 
-func (g *GameServer) Game() string {
+func (g *GameServer) Game() (game string) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 	return g.game
 }
 
-func (g *GameServer) Version() string {
+func (g *GameServer) Version() (version string) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 	return g.version
 }
 
-func (g *GameServer) Dedicated() bool {
+func (g *GameServer) Dedicated() (dedicated bool) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 	return g.dedicated
 }
 
-func (g *GameServer) Password() bool {
+func (g *GameServer) Password() (password bool) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 	return g.password
 }
 
-func (g *GameServer) NumPlayers() uint8 {
+func (g *GameServer) NumPlayers() (numPlayers uint8) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 	return g.numPlayers
 }
 
-func (g *GameServer) MaxPlayers() uint8 {
+func (g *GameServer) MaxPlayers() (maxPlayers uint8) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 	return g.maxPlayers
 }
 
-func (g *GameServer) CPUSpeed() uint16 {
+func (g *GameServer) CPUSpeed() (cpuSpeed uint16) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 	return g.cpuSpeed
 }
 
-func (g *GameServer) Mod() string {
+func (g *GameServer) Mod() (mod string) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 	return g.mod
 }
 
-func (g *GameServer) ServerType() string {
+func (g *GameServer) ServerType() (serverType string) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 	return g.serverType
 }
 
-func (g *GameServer) Mission() string {
+func (g *GameServer) Mission() (mission string) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 	return g.mission
 }
 
-func (g *GameServer) Info() string {
+func (g *GameServer) Info() (info string) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 	return g.info
 }
 
-func (g *GameServer) NumTeams() uint8 {
+func (g *GameServer) NumTeams() (numTeams uint8) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 	return g.numTeams
 }
 
-func (g *GameServer) TeamScoreHeader() string {
+func (g *GameServer) TeamScoreHeader() (teamScoreHeader string) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 	return g.teamScoreHeader
 }
 
-func (g *GameServer) PlayerScoreHeader() string {
+func (g *GameServer) PlayerScoreHeader() (playerScoreHeader string) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 	return g.playerScoreHeader
 }
 
-func (g *GameServer) Teams() []Team {
+func (g *GameServer) Teams() (teams []Team) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
-	return g.teams
+	teams = make([]Team, len(g.teams))
+	copy(teams, g.teams)
+	return
 }
 
-func (g *GameServer) Players() []Player {
+func (g *GameServer) Players() (players []Player) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
-	return g.players
+	players = make([]Player, len(g.players))
+	copy(players, g.players)
+	return
 }
 
-func (g *GameServer) Query(timeout time.Duration, localAddress string) error {
+func (g *GameServer) Query(timeout time.Duration, localAddress string) (err error) {
 	if timeout == 0 {
 		timeout = 5 * time.Second
 	}
 
 	var localAddr *net.UDPAddr
-	var err error
 
 	if len(localAddress) != 0 {
 		localAddr, err = net.ResolveUDPAddr("udp4", localAddress)
 		if err != nil {
-			return err
+			return
 		}
 	}
 
 	remoteAddr, err := net.ResolveUDPAddr("udp4", g.address)
 	if err != nil {
-		return err
+		return
 	}
 
 	g.mutex.Lock()
@@ -212,17 +215,13 @@ func (g *GameServer) Query(timeout time.Duration, localAddress string) error {
 
 	c, err := net.DialUDP("udp4", localAddr, remoteAddr)
 	if err != nil {
-		return err
+		return
 	}
 
-	defer func(c *net.UDPConn) {
-		err := c.Close()
-		if err != nil {
-			panic(err)
-		}
-	}(c)
+	defer c.Close()
 
 	key := uint16(rand.Uint32())
+	// 0x62 = GameSpy query request, next two bytes are key
 	sendBuffer := []byte{0x62, 0x00, 0x00}
 
 	binary.BigEndian.PutUint16(sendBuffer[1:], key)
@@ -230,17 +229,17 @@ func (g *GameServer) Query(timeout time.Duration, localAddress string) error {
 	g.queryTime = time.Now()
 	_, err = c.Write(sendBuffer)
 	if err != nil {
-		return err
+		return
 	}
 
 	readBuffer := make([]byte, 2048)
 	err = c.SetDeadline(time.Now().Add(timeout))
 	if err != nil {
-		return err
+		return
 	}
 	n, addr, err := c.ReadFromUDP(readBuffer)
 	if err != nil {
-		return err
+		return
 	}
 
 	g.ping = time.Since(g.queryTime)
@@ -256,8 +255,9 @@ func (g *GameServer) Query(timeout time.Duration, localAddress string) error {
 	reader := bytes.NewReader(readBuffer[0:n])
 	b, err := reader.ReadByte()
 	if err != nil {
-		return err
+		return
 	}
+	// 0x63 = GameSpy query response
 	if b != 0x63 {
 		return fmt.Errorf("t1net.GameServer.Query: Reply byte 0: %#v != 0x63", b)
 	}
@@ -265,7 +265,7 @@ func (g *GameServer) Query(timeout time.Duration, localAddress string) error {
 	var readKey uint16
 	err = binary.Read(reader, binary.BigEndian, &readKey)
 	if err != nil {
-		return err
+		return
 	}
 	if key != readKey {
 		return fmt.Errorf("t1net.GameServer.Query: Key mismatch: %d : %d", readKey, key)
@@ -273,130 +273,134 @@ func (g *GameServer) Query(timeout time.Duration, localAddress string) error {
 
 	b, err = reader.ReadByte()
 	if err != nil {
-		return err
+		return
 	}
+	// 0x62 = The request we sent, in this case the GameSpy Query request
 	if b != 0x62 {
 		return fmt.Errorf("t1net.GameServer.Query: Reply byte 3: %#v != 0x62", b)
 	}
 
 	g.game, err = ReadPascalString(reader)
 	if err != nil {
-		return err
+		return
 	}
 
 	g.version, err = ReadPascalString(reader)
 	if err != nil {
-		return err
+		return
 	}
 
 	g.name, err = ReadPascalString(reader)
 	if err != nil {
-		return err
+		return
 	}
 
 	b, err = reader.ReadByte()
 	if err != nil {
-		return err
+		return
 	}
 	g.dedicated = b == 1
 
 	b, err = reader.ReadByte()
 	if err != nil {
-		return err
+		return
 	}
 	g.password = b == 1
 
 	b, err = reader.ReadByte()
 	if err != nil {
-		return err
+		return
 	}
 	g.numPlayers = b
 
 	b, err = reader.ReadByte()
 	if err != nil {
-		return err
+		return
 	}
 	g.maxPlayers = b
 
 	err = binary.Read(reader, binary.LittleEndian, &g.cpuSpeed)
 	if err != nil {
-		return err
+		return
 	}
 
 	g.mod, err = ReadPascalString(reader)
 	if err != nil {
-		return err
+		return
 	}
 
 	g.serverType, err = ReadPascalString(reader)
 	if err != nil {
-		return err
+		return
 	}
 
 	g.mission, err = ReadPascalString(reader)
 	if err != nil {
-		return err
+		return
 	}
 
 	g.info, err = ReadPascalString(reader)
 	if err != nil {
-		return err
+		return
 	}
 
 	b, err = reader.ReadByte()
 	if err != nil {
-		return err
+		return
 	}
 	g.numTeams = b
 
 	g.teamScoreHeader, err = ReadPascalString(reader)
 	if err != nil {
-		return err
+		return
 	}
 
 	g.playerScoreHeader, err = ReadPascalString(reader)
 	if err != nil {
-		return err
+		return
 	}
-	
+
+	var teamName, teamScore string
 	for i := uint8(0); i < g.numTeams; i++ {
-		teamName, err := ReadPascalString(reader)
+		teamName, err = ReadPascalString(reader)
 		if err != nil {
-			return err
+			return
 		}
 
-		teamScore, err := ReadPascalString(reader)
+		teamScore, err = ReadPascalString(reader)
 		if err != nil {
-			return err
+			return
 		}
 
 		g.teams = append(g.teams, Team{Name: teamName, Score: teamScore})
 	}
 
+	var ping, pl, team byte
+	var playerName, playerScore string
 	for i := uint8(0); i < g.numPlayers; i++ {
-		ping, err := reader.ReadByte()
+		ping, err = reader.ReadByte()
 		if err != nil {
-			return err
+			return
 		}
 
-		pl, err := reader.ReadByte()
+		pl, err = reader.ReadByte()
 		if err != nil {
-			return err
+			return
 		}
 
-		team, err := reader.ReadByte()
+		team, err = reader.ReadByte()
 		if err != nil {
-			return err
+			return
 		}
 
-		playerName, err := ReadPascalString(reader)
+		playerName, err = ReadPascalString(reader)
 		if err != nil {
-			return err
+			return
 		}
 
-		playerScore, err := ReadPascalString(reader)
+		playerScore, err = ReadPascalString(reader)
 		if err != nil {
-			return err
+			return
 		}
 
 		g.players = append(g.players, Player{Ping: ping, PL: pl, Team: team, Name: playerName, Score: playerScore})
@@ -406,7 +410,7 @@ func (g *GameServer) Query(timeout time.Duration, localAddress string) error {
 		return fmt.Errorf("t1net.GameServer.Query: %d left over bytes", reader.Len())
 	}
 
-	return nil
+	return
 }
 
 func NewGameServer(address string) *GameServer {
