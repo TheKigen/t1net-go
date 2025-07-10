@@ -60,7 +60,7 @@ func TestReadAddressPort(t *testing.T) {
 
 func TestWriteAddressPort(t *testing.T) {
 	var buffer bytes.Buffer
-	var ip net.IP = net.IPv4(12, 13, 14, 15).To4()
+	ip := net.IPv4(12, 13, 14, 15).To4()
 	err := WriteAddressPort(&buffer, ip, 28001)
 	if err != nil {
 		t.Fatal(err)

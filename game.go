@@ -218,7 +218,12 @@ func (g *GameServer) Query(timeout time.Duration, localAddress string) (err erro
 		return
 	}
 
-	defer c.Close()
+	defer func(c *net.UDPConn) {
+		err := c.Close()
+		if err != nil {
+			fmt.Printf("t1net.GameServer.Query: Error closing UDP connection: %v\n", err)
+		}
+	}(c)
 
 	key := uint16(rand.Uint32())
 	// 0x62 = GameSpy query request, next two bytes are key

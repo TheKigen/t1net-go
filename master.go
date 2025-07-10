@@ -110,7 +110,12 @@ func (m *MasterServer) Query(timeout time.Duration, localAddress string) (err er
 		return
 	}
 
-	defer c.Close()
+	defer func(c *net.UDPConn) {
+		err := c.Close()
+		if err != nil {
+			fmt.Printf("t1net.MasterServer.Query: Error closing connection: %v\n", err)
+		}
+	}(c)
 
 	key := uint16(rand.Uint32())
 	sendBuffer := []byte{
