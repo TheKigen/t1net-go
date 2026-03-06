@@ -18,18 +18,82 @@ package t1net
 
 import (
 	"bytes"
-	"math/rand"
+	"encoding/binary"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
 
-func TestMasterServer(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
+func buildMasterResponse1(key uint16) []byte {
+	sendBuffer := []byte{
+		0x10, 0x6, 1, 2, 0x00, 0x00, 0x0, 0x66,
+		13, 'T', 'r', 'i', 'b', 'e', 's', ' ', 'M', 'a', 's', 't', 'e', 'r', // Name
+		9, 'T', 'e', 's', 't', ' ', 'M', 'O', 'T', 'D', // MOTD
+		0, 42, // Server Count
+		0x6, 0x43, 0xde, 0x8a, 0x2e, 0x67, 0x6d,
+		0x6, 0x18, 0x24, 0xaf, 0x99, 0x61, 0x6d,
+		0x6, 0x2d, 0x22, 0xf, 0x5a, 0x61, 0x6d,
+		0x6, 0x6b, 0x5, 0xc3, 0xcd, 0x61, 0x6d,
+		0x6, 0x6b, 0xad, 0xa7, 0x7c, 0x61, 0x6d,
+		0x6, 0x6b, 0xad, 0xa7, 0x6d, 0x61, 0x6d,
+		0x6, 0xae, 0x32, 0xa7, 0xa, 0x64, 0x6d,
+		0x6, 0x2d, 0x4f, 0x89, 0x6d, 0x61, 0x6d,
+		0x6, 0xad, 0x1a, 0xf8, 0x72, 0x61, 0x6d,
+		0x6, 0xcf, 0x94, 0xd, 0x84, 0x66, 0x6d,
+		0x6, 0x88, 0x24, 0x5b, 0xe, 0x61, 0x6d,
+		0x6, 0xd8, 0x80, 0x96, 0xd0, 0x61, 0x6d,
+		0x6, 0x6b, 0xad, 0xa7, 0x6d, 0x62, 0x6d,
+		0x6, 0xae, 0x37, 0x58, 0xbe, 0x61, 0x6d,
+		0x6, 0xae, 0x32, 0xa7, 0xa, 0x61, 0x6d,
+		0x6, 0x49, 0x5a, 0x18, 0xc3, 0x61, 0x6d,
+		0x6, 0x2d, 0x22, 0xf, 0x5a, 0x63, 0x6d,
+		0x6, 0xae, 0x32, 0xa7, 0xa, 0x63, 0x6d,
+		0x6, 0x8b, 0x63, 0xfd, 0x23, 0x61, 0x6d,
+		0x6, 0xae, 0x32, 0xa7, 0xa, 0x62, 0x6d,
+		0x6, 0x12, 0xda, 0x1e, 0x7, 0x61, 0x6d,
+		0x6, 0x90, 0xca, 0x36, 0x93, 0x65, 0x6d,
+		0x6, 0x6b, 0xad, 0xa7, 0x71, 0xc5, 0x6d,
+		0x6, 0x2d, 0x3f, 0x41, 0xf6, 0x65, 0x6d,
+		0x6, 0x2d, 0x22, 0xf, 0x5a, 0x62, 0x6d,
+		0x6, 0xc, 0xea, 0x96, 0xd6, 0x61, 0x6d,
+		0x6, 0xae, 0x32, 0xa7, 0xa, 0xc2, 0x6d,
+		0x6, 0x6b, 0xad, 0xa7, 0x71, 0xc6, 0x6d,
+		0x6, 0x9f, 0x2, 0x2e, 0x79, 0x61, 0x6d,
+		0x6, 0xae, 0x37, 0x58, 0xbe, 0x66, 0x6d,
+		0x6, 0xae, 0x37, 0x58, 0xbe, 0xbb, 0xa1,
+		0x6, 0x4b, 0x83, 0xaf, 0x5c, 0x61, 0x6d,
+		0x6, 0x4a, 0x33, 0x1, 0x7e, 0x61, 0x6d,
+		0x6, 0xae, 0x37, 0x58, 0xbe, 0x7b, 0x94,
+		0x6, 0xae, 0x37, 0x58, 0xbe, 0xcf, 0x74,
+		0x6, 0xae, 0x37, 0x58, 0xbe, 0xed, 0x3,
+		0x6, 0xae, 0x37, 0x58, 0xbe, 0x65, 0x6d,
+		0x6, 0xae, 0x37, 0x58, 0xbe, 0x68, 0x6d,
+		0x6, 0xae, 0x37, 0x58, 0xbe, 0x6b, 0x6d,
+		0x6, 0x4b, 0x83, 0xaf, 0x5c, 0x62, 0x6d,
+		0x6, 0xae, 0x37, 0x58, 0xbe, 0xef, 0x3,
+		0x6, 0xae, 0x37, 0x58, 0xbe, 0xee, 0x3,
+	}
+	binary.BigEndian.PutUint16(sendBuffer[4:6], key)
+	return sendBuffer
+}
 
-	master := NewMasterServer("127.0.0.1:28999")
+func buildMasterResponse2(key uint16) []byte {
+	sendBuffer := []byte{
+		0x10, 0x6, 2, 2, 0x00, 0x00, 0x0, 0x66,
+		13, 'T', 'r', 'i', 'b', 'e', 's', ' ', 'M', 'a', 's', 't', 'e', 'r', // Name
+		9, 'T', 'e', 's', 't', ' ', 'M', 'O', 'T', 'D', // MOTD
+		0, 2, // Server Count
+		6, 12, 13, 14, 15, 97, 109,
+		6, 22, 23, 24, 25, 97, 109,
+	}
+	binary.BigEndian.PutUint16(sendBuffer[4:6], key)
+	return sendBuffer
+}
 
-	s, err := net.ResolveUDPAddr("udp4", "127.0.0.1:28999")
+func startMasterListener(t *testing.T, addr string, handler func(c *net.UDPConn, readBuffer []byte, n int, addr *net.UDPAddr)) *net.UDPConn {
+	t.Helper()
+	s, err := net.ResolveUDPAddr("udp4", addr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,13 +101,6 @@ func TestMasterServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func(c *net.UDPConn) {
-		err := c.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
-	}(c)
-
 	go func() {
 		readBuffer := make([]byte, 64)
 		err := c.SetDeadline(time.Now().Add(1 * time.Second))
@@ -51,17 +108,25 @@ func TestMasterServer(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		n, addr, err := c.ReadFromUDP(readBuffer)
+		n, raddr, err := c.ReadFromUDP(readBuffer)
 		if err != nil {
 			t.Error(err)
 			return
 		}
+		handler(c, readBuffer, n, raddr)
+	}()
+	return c
+}
+
+func TestMasterServer(t *testing.T) {
+	master := NewMasterServer("127.0.0.1:28999")
+
+	c := startMasterListener(t, "127.0.0.1:28999", func(c *net.UDPConn, readBuffer []byte, n int, addr *net.UDPAddr) {
 		if n != 8 {
 			t.Errorf("Wrong query length, %d", n)
 			return
 		}
 		expected := []byte{0x10, 0x03, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00}
-		// Key is random and must match.
 		expected[4] = readBuffer[4]
 		expected[5] = readBuffer[5]
 
@@ -70,99 +135,52 @@ func TestMasterServer(t *testing.T) {
 			return
 		}
 
-		sendBuffer := []byte{
-			0x10, 0x6, 1, 2, 0x71, 0xb2, 0x0, 0x66,
-			13, 'T', 'r', 'i', 'b', 'e', 's', ' ', 'M', 'a', 's', 't', 'e', 'r', // Name
-			9, 'T', 'e', 's', 't', ' ', 'M', 'O', 'T', 'D', // MOTD
-			0, 42, // Server Count
-			0x6, 0x43, 0xde, 0x8a, 0x2e, 0x67, 0x6d,
-			0x6, 0x18, 0x24, 0xaf, 0x99, 0x61, 0x6d,
-			0x6, 0x2d, 0x22, 0xf, 0x5a, 0x61, 0x6d,
-			0x6, 0x6b, 0x5, 0xc3, 0xcd, 0x61, 0x6d,
-			0x6, 0x6b, 0xad, 0xa7, 0x7c, 0x61, 0x6d,
-			0x6, 0x6b, 0xad, 0xa7, 0x6d, 0x61, 0x6d,
-			0x6, 0xae, 0x32, 0xa7, 0xa, 0x64, 0x6d,
-			0x6, 0x2d, 0x4f, 0x89, 0x6d, 0x61, 0x6d,
-			0x6, 0xad, 0x1a, 0xf8, 0x72, 0x61, 0x6d,
-			0x6, 0xcf, 0x94, 0xd, 0x84, 0x66, 0x6d,
-			0x6, 0x88, 0x24, 0x5b, 0xe, 0x61, 0x6d,
-			0x6, 0xd8, 0x80, 0x96, 0xd0, 0x61, 0x6d,
-			0x6, 0x6b, 0xad, 0xa7, 0x6d, 0x62, 0x6d,
-			0x6, 0xae, 0x37, 0x58, 0xbe, 0x61, 0x6d,
-			0x6, 0xae, 0x32, 0xa7, 0xa, 0x61, 0x6d,
-			0x6, 0x49, 0x5a, 0x18, 0xc3, 0x61, 0x6d,
-			0x6, 0x2d, 0x22, 0xf, 0x5a, 0x63, 0x6d,
-			0x6, 0xae, 0x32, 0xa7, 0xa, 0x63, 0x6d,
-			0x6, 0x8b, 0x63, 0xfd, 0x23, 0x61, 0x6d,
-			0x6, 0xae, 0x32, 0xa7, 0xa, 0x62, 0x6d,
-			0x6, 0x12, 0xda, 0x1e, 0x7, 0x61, 0x6d,
-			0x6, 0x90, 0xca, 0x36, 0x93, 0x65, 0x6d,
-			0x6, 0x6b, 0xad, 0xa7, 0x71, 0xc5, 0x6d,
-			0x6, 0x2d, 0x3f, 0x41, 0xf6, 0x65, 0x6d,
-			0x6, 0x2d, 0x22, 0xf, 0x5a, 0x62, 0x6d,
-			0x6, 0xc, 0xea, 0x96, 0xd6, 0x61, 0x6d,
-			0x6, 0xae, 0x32, 0xa7, 0xa, 0xc2, 0x6d,
-			0x6, 0x6b, 0xad, 0xa7, 0x71, 0xc6, 0x6d,
-			0x6, 0x9f, 0x2, 0x2e, 0x79, 0x61, 0x6d,
-			0x6, 0xae, 0x37, 0x58, 0xbe, 0x66, 0x6d,
-			0x6, 0xae, 0x37, 0x58, 0xbe, 0xbb, 0xa1,
-			0x6, 0x4b, 0x83, 0xaf, 0x5c, 0x61, 0x6d,
-			0x6, 0x4a, 0x33, 0x1, 0x7e, 0x61, 0x6d,
-			0x6, 0xae, 0x37, 0x58, 0xbe, 0x7b, 0x94,
-			0x6, 0xae, 0x37, 0x58, 0xbe, 0xcf, 0x74,
-			0x6, 0xae, 0x37, 0x58, 0xbe, 0xed, 0x3,
-			0x6, 0xae, 0x37, 0x58, 0xbe, 0x65, 0x6d,
-			0x6, 0xae, 0x37, 0x58, 0xbe, 0x68, 0x6d,
-			0x6, 0xae, 0x37, 0x58, 0xbe, 0x6b, 0x6d,
-			0x6, 0x4b, 0x83, 0xaf, 0x5c, 0x62, 0x6d,
-			0x6, 0xae, 0x37, 0x58, 0xbe, 0xef, 0x3,
-			0x6, 0xae, 0x37, 0x58, 0xbe, 0xee, 0x3,
-		}
-		sendBuffer[4] = readBuffer[4]
-		sendBuffer[5] = readBuffer[5]
-		sent, err := c.WriteToUDP(sendBuffer, addr)
+		key := binary.BigEndian.Uint16(readBuffer[4:6])
+
+		sent, err := c.WriteToUDP(buildMasterResponse1(key), addr)
 		if err != nil {
 			t.Error(err)
 			return
 		}
-		if sent != len(sendBuffer) {
-			t.Error("Sent did not match sendBuffer length")
+		if sent == 0 {
+			t.Error("Sent 0 bytes")
 			return
 		}
 
-		sendBuffer = []byte{
-			0x10, 0x6, 2, 2, 0x71, 0xb2, 0x0, 0x66,
-			13, 'T', 'r', 'i', 'b', 'e', 's', ' ', 'M', 'a', 's', 't', 'e', 'r', // Name
-			9, 'T', 'e', 's', 't', ' ', 'M', 'O', 'T', 'D', // MOTD
-			0, 2, // Server Count
-			6, 12, 13, 14, 15, 97, 109,
-			6, 22, 23, 24, 25, 97, 109,
-		}
-		sendBuffer[4] = readBuffer[4]
-		sendBuffer[5] = readBuffer[5]
-		sent, err = c.WriteToUDP(sendBuffer, addr)
+		sent, err = c.WriteToUDP(buildMasterResponse2(key), addr)
 		if err != nil {
 			t.Error(err)
 			return
 		}
-		if sent != len(sendBuffer) {
-			t.Error("Sent did not match sendBuffer length")
+		if sent == 0 {
+			t.Error("Sent 0 bytes")
 			return
+		}
+	})
+	defer func() {
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
 		}
 	}()
 
-	err = master.Query(0, "")
+	err := master.Query(0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if master.Name() != "Tribes Master" {
-		t.Errorf("master.Name(): %s != Tribes Master\n", master.Name())
+		t.Errorf("master.Name(): %s != Tribes Master", master.Name())
 	}
 	if master.MOTD() != "Test MOTD" {
-		t.Errorf("master.MOTD(): got %s\n", master.MOTD())
+		t.Errorf("master.MOTD(): got %s", master.MOTD())
 	}
 	if master.ServerCount() != 44 {
-		t.Errorf("master.ServerCount(): %d != 42\n", master.ServerCount())
+		t.Errorf("master.ServerCount(): %d != 44", master.ServerCount())
+	}
+	if master.Ping() <= 0 {
+		t.Error("master.Ping() should be > 0")
+	}
+	if master.QueryTime().IsZero() {
+		t.Error("master.QueryTime() should not be zero")
 	}
 
 	expectedServers := []string{
@@ -215,12 +233,339 @@ func TestMasterServer(t *testing.T) {
 	gotServers := master.Servers()
 
 	if len(gotServers) != len(expectedServers) {
-		t.Fatalf("master.Servers(): len(gotServers) %d != len(expectedServers) %d\n", len(gotServers), len(expectedServers))
+		t.Fatalf("master.Servers(): len(gotServers) %d != len(expectedServers) %d", len(gotServers), len(expectedServers))
 	}
 
-	for i := 1; i < len(gotServers); i++ {
+	for i := 0; i < len(gotServers); i++ {
 		if gotServers[i] != expectedServers[i] {
-			t.Fatalf("master.Servers(): %s != %s at index %d\n", gotServers[i], expectedServers[i], i)
+			t.Fatalf("master.Servers(): %s != %s at index %d", gotServers[i], expectedServers[i], i)
 		}
+	}
+}
+
+func TestMasterServerMinPacketSize(t *testing.T) {
+	master := NewMasterServer("127.0.0.1:28999")
+
+	if master.MinPacketSize() != DefaultMinPacketSize {
+		t.Errorf("default MinPacketSize: %d != %d", master.MinPacketSize(), DefaultMinPacketSize)
+	}
+
+	master.SetMinPacketSize(16)
+	if master.MinPacketSize() != 16 {
+		t.Errorf("MinPacketSize after set: %d != 16", master.MinPacketSize())
+	}
+
+	c := startMasterListener(t, "127.0.0.1:28999", func(c *net.UDPConn, readBuffer []byte, n int, addr *net.UDPAddr) {
+		if n != 16 {
+			t.Errorf("Wrong query length with custom padding, got %d want 16", n)
+			return
+		}
+		// Verify padding bytes are null
+		for i := 8; i < n; i++ {
+			if readBuffer[i] != 0x00 {
+				t.Errorf("padding byte %d is %#v, expected 0x00", i, readBuffer[i])
+				return
+			}
+		}
+
+		key := binary.BigEndian.Uint16(readBuffer[4:6])
+		// Single packet response
+		resp := []byte{
+			0x10, 0x6, 1, 1, 0x00, 0x00, 0x0, 0x66,
+			4, 'T', 'e', 's', 't',
+			4, 'M', 'O', 'T', 'D',
+			0, 1,
+			6, 12, 13, 14, 15, 97, 109,
+		}
+		binary.BigEndian.PutUint16(resp[4:6], key)
+		if _, err := c.WriteToUDP(resp, addr); err != nil {
+			t.Error(err)
+		}
+	})
+	defer func() {
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	err := master.Query(1*time.Second, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMasterServerInvalidAddress(t *testing.T) {
+	master := NewMasterServer("not_a_valid_address")
+	err := master.Query(1*time.Second, "")
+	if err == nil {
+		t.Fatal("expected error for invalid address")
+	}
+}
+
+func TestMasterServerInvalidLocalAddress(t *testing.T) {
+	master := NewMasterServer("127.0.0.1:28999")
+	err := master.Query(1*time.Second, "not_valid")
+	if err == nil {
+		t.Fatal("expected error for invalid local address")
+	}
+}
+
+func TestMasterServerTimeout(t *testing.T) {
+	master := NewMasterServer("127.0.0.1:28999")
+
+	s, err := net.ResolveUDPAddr("udp4", "127.0.0.1:28999")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := net.ListenUDP("udp4", s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	err = master.Query(100*time.Millisecond, "")
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+}
+
+func TestMasterServerBadVersionByte(t *testing.T) {
+	master := NewMasterServer("127.0.0.1:28999")
+
+	c := startMasterListener(t, "127.0.0.1:28999", func(c *net.UDPConn, readBuffer []byte, n int, addr *net.UDPAddr) {
+		key := binary.BigEndian.Uint16(readBuffer[4:6])
+		resp := []byte{0xFF, 0x6, 1, 1, 0x00, 0x00, 0x0, 0x66, 1, 'A', 1, 'B', 0, 0}
+		binary.BigEndian.PutUint16(resp[4:6], key)
+		if _, err := c.WriteToUDP(resp, addr); err != nil {
+			t.Error(err)
+		}
+	})
+	defer func() {
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	err := master.Query(1*time.Second, "")
+	if err == nil {
+		t.Fatal("expected error for bad version byte")
+	}
+	if !strings.Contains(err.Error(), "0x10") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestMasterServerBadTypeByte(t *testing.T) {
+	master := NewMasterServer("127.0.0.1:28999")
+
+	c := startMasterListener(t, "127.0.0.1:28999", func(c *net.UDPConn, readBuffer []byte, n int, addr *net.UDPAddr) {
+		key := binary.BigEndian.Uint16(readBuffer[4:6])
+		resp := []byte{0x10, 0xFF, 1, 1, 0x00, 0x00, 0x0, 0x66, 1, 'A', 1, 'B', 0, 0}
+		binary.BigEndian.PutUint16(resp[4:6], key)
+		if _, err := c.WriteToUDP(resp, addr); err != nil {
+			t.Error(err)
+		}
+	})
+	defer func() {
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	err := master.Query(1*time.Second, "")
+	if err == nil {
+		t.Fatal("expected error for bad type byte")
+	}
+	if !strings.Contains(err.Error(), "0x06") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestMasterServerInvalidPacketNumber(t *testing.T) {
+	master := NewMasterServer("127.0.0.1:28999")
+
+	c := startMasterListener(t, "127.0.0.1:28999", func(c *net.UDPConn, readBuffer []byte, n int, addr *net.UDPAddr) {
+		key := binary.BigEndian.Uint16(readBuffer[4:6])
+		resp := []byte{0x10, 0x6, 0, 1, 0x00, 0x00, 0x0, 0x66, 1, 'A', 1, 'B', 0, 0}
+		binary.BigEndian.PutUint16(resp[4:6], key)
+		if _, err := c.WriteToUDP(resp, addr); err != nil {
+			t.Error(err)
+		}
+	})
+	defer func() {
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	err := master.Query(1*time.Second, "")
+	if err == nil {
+		t.Fatal("expected error for invalid packet number")
+	}
+	if !strings.Contains(err.Error(), "Invalid packet number") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestMasterServerInvalidPacketTotal(t *testing.T) {
+	master := NewMasterServer("127.0.0.1:28999")
+
+	c := startMasterListener(t, "127.0.0.1:28999", func(c *net.UDPConn, readBuffer []byte, n int, addr *net.UDPAddr) {
+		key := binary.BigEndian.Uint16(readBuffer[4:6])
+		resp := []byte{0x10, 0x6, 1, 0, 0x00, 0x00, 0x0, 0x66, 1, 'A', 1, 'B', 0, 0}
+		binary.BigEndian.PutUint16(resp[4:6], key)
+		if _, err := c.WriteToUDP(resp, addr); err != nil {
+			t.Error(err)
+		}
+	})
+	defer func() {
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	err := master.Query(1*time.Second, "")
+	if err == nil {
+		t.Fatal("expected error for invalid packet total")
+	}
+	if !strings.Contains(err.Error(), "Invalid total packet number") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestMasterServerPacketNumberGreaterThanTotal(t *testing.T) {
+	master := NewMasterServer("127.0.0.1:28999")
+
+	c := startMasterListener(t, "127.0.0.1:28999", func(c *net.UDPConn, readBuffer []byte, n int, addr *net.UDPAddr) {
+		key := binary.BigEndian.Uint16(readBuffer[4:6])
+		resp := []byte{0x10, 0x6, 3, 1, 0x00, 0x00, 0x0, 0x66, 1, 'A', 1, 'B', 0, 0}
+		binary.BigEndian.PutUint16(resp[4:6], key)
+		if _, err := c.WriteToUDP(resp, addr); err != nil {
+			t.Error(err)
+		}
+	})
+	defer func() {
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	err := master.Query(1*time.Second, "")
+	if err == nil {
+		t.Fatal("expected error for packet number > total")
+	}
+	if !strings.Contains(err.Error(), "greater than total") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestMasterServerKeyMismatch(t *testing.T) {
+	master := NewMasterServer("127.0.0.1:28999")
+
+	c := startMasterListener(t, "127.0.0.1:28999", func(c *net.UDPConn, readBuffer []byte, n int, addr *net.UDPAddr) {
+		resp := []byte{0x10, 0x6, 1, 1, 0xFF, 0xFF, 0x0, 0x66, 1, 'A', 1, 'B', 0, 0}
+		if _, err := c.WriteToUDP(resp, addr); err != nil {
+			t.Error(err)
+		}
+	})
+	defer func() {
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	err := master.Query(1*time.Second, "")
+	if err == nil {
+		t.Fatal("expected error for key mismatch")
+	}
+	if !strings.Contains(err.Error(), "Key mismatch") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestMasterServerBadByte6(t *testing.T) {
+	master := NewMasterServer("127.0.0.1:28999")
+
+	c := startMasterListener(t, "127.0.0.1:28999", func(c *net.UDPConn, readBuffer []byte, n int, addr *net.UDPAddr) {
+		key := binary.BigEndian.Uint16(readBuffer[4:6])
+		resp := []byte{0x10, 0x6, 1, 1, 0x00, 0x00, 0xFF, 0x66, 1, 'A', 1, 'B', 0, 0}
+		binary.BigEndian.PutUint16(resp[4:6], key)
+		if _, err := c.WriteToUDP(resp, addr); err != nil {
+			t.Error(err)
+		}
+	})
+	defer func() {
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	err := master.Query(1*time.Second, "")
+	if err == nil {
+		t.Fatal("expected error for bad byte 6")
+	}
+	if !strings.Contains(err.Error(), "0x00") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestMasterServerBadByte7(t *testing.T) {
+	master := NewMasterServer("127.0.0.1:28999")
+
+	c := startMasterListener(t, "127.0.0.1:28999", func(c *net.UDPConn, readBuffer []byte, n int, addr *net.UDPAddr) {
+		key := binary.BigEndian.Uint16(readBuffer[4:6])
+		resp := []byte{0x10, 0x6, 1, 1, 0x00, 0x00, 0x0, 0xFF, 1, 'A', 1, 'B', 0, 0}
+		binary.BigEndian.PutUint16(resp[4:6], key)
+		if _, err := c.WriteToUDP(resp, addr); err != nil {
+			t.Error(err)
+		}
+	})
+	defer func() {
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	err := master.Query(1*time.Second, "")
+	if err == nil {
+		t.Fatal("expected error for bad byte 7")
+	}
+	if !strings.Contains(err.Error(), "0x66") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestMasterServerLeftoverBytes(t *testing.T) {
+	master := NewMasterServer("127.0.0.1:28999")
+
+	c := startMasterListener(t, "127.0.0.1:28999", func(c *net.UDPConn, readBuffer []byte, n int, addr *net.UDPAddr) {
+		key := binary.BigEndian.Uint16(readBuffer[4:6])
+		resp := []byte{
+			0x10, 0x6, 1, 1, 0x00, 0x00, 0x0, 0x66,
+			1, 'A', 1, 'B',
+			0, 0, // server count = 0
+			0xFF, // extra byte
+		}
+		binary.BigEndian.PutUint16(resp[4:6], key)
+		if _, err := c.WriteToUDP(resp, addr); err != nil {
+			t.Error(err)
+		}
+	})
+	defer func() {
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	err := master.Query(1*time.Second, "")
+	if err == nil {
+		t.Fatal("expected error for leftover bytes")
+	}
+	if !strings.Contains(err.Error(), "left over bytes") {
+		t.Errorf("unexpected error: %v", err)
 	}
 }

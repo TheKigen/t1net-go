@@ -63,6 +63,19 @@ type GameServer struct {
 	playerScoreHeader string
 	teams             []Team
 	players           []Player
+	minPacketSize     int
+}
+
+func (g *GameServer) MinPacketSize() (minPacketSize int) {
+	g.mutex.RLock()
+	defer g.mutex.RUnlock()
+	return g.minPacketSize
+}
+
+func (g *GameServer) SetMinPacketSize(minPacketSize int) {
+	g.mutex.Lock()
+	defer g.mutex.Unlock()
+	g.minPacketSize = minPacketSize
 }
 
 func (g *GameServer) Ping() (ping time.Duration) {
@@ -232,7 +245,7 @@ func (g *GameServer) Query(timeout time.Duration, localAddress string) (err erro
 	binary.BigEndian.PutUint16(sendBuffer[1:], key)
 
 	g.queryTime = time.Now()
-	_, err = c.Write(sendBuffer)
+	_, err = c.Write(PadPacket(sendBuffer, g.minPacketSize))
 	if err != nil {
 		return
 	}
@@ -419,5 +432,5 @@ func (g *GameServer) Query(timeout time.Duration, localAddress string) (err erro
 }
 
 func NewGameServer(address string) *GameServer {
-	return &GameServer{address: address}
+	return &GameServer{address: address, minPacketSize: DefaultMinPacketSize}
 }

@@ -87,10 +87,23 @@ func ReadAddressPort(reader *bytes.Reader) (ip net.IP, port uint16, err error) {
 	return
 }
 
+const DefaultMinPacketSize = 8
+
+func PadPacket(data []byte, minSize int) []byte {
+	if len(data) >= minSize {
+		return data
+	}
+	padded := make([]byte, minSize)
+	copy(padded, data)
+	return padded
+}
+
 func WriteAddressPort(buffer *bytes.Buffer, ip net.IP, port uint16) (err error) {
-	buffer.WriteByte(6)
 	if len(ip) != net.IPv4len {
 		return errors.New("t1net.WriteAddressPort: IP length is not equal to 4 bytes")
+	}
+	if err = buffer.WriteByte(6); err != nil {
+		return
 	}
 	err = binary.Write(buffer, binary.BigEndian, ip)
 	if err != nil {

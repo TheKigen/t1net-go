@@ -37,7 +37,20 @@ type MasterServer struct {
 	servers      []string
 	ping         time.Duration
 	queryTime    time.Time
-	totalPackets int
+	totalPackets  int
+	minPacketSize int
+}
+
+func (m *MasterServer) MinPacketSize() (minPacketSize int) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	return m.minPacketSize
+}
+
+func (m *MasterServer) SetMinPacketSize(minPacketSize int) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	m.minPacketSize = minPacketSize
 }
 
 func (m *MasterServer) Ping() (ping time.Duration) {
@@ -133,7 +146,7 @@ func (m *MasterServer) Query(timeout time.Duration, localAddress string) (err er
 
 	m.queryTime = time.Now()
 	pingCalculated := false
-	_, err = c.Write(sendBuffer)
+	_, err = c.Write(PadPacket(sendBuffer, m.minPacketSize))
 	if err != nil {
 		return
 	}
@@ -269,5 +282,5 @@ func (m *MasterServer) Query(timeout time.Duration, localAddress string) (err er
 }
 
 func NewMasterServer(address string) *MasterServer {
-	return &MasterServer{address: address}
+	return &MasterServer{address: address, minPacketSize: DefaultMinPacketSize}
 }
