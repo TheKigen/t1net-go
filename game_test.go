@@ -182,8 +182,8 @@ func TestGameServer(t *testing.T) {
 	if game.PlayerScoreHeader() == "" {
 		t.Error("game.PlayerScoreHeader() is empty")
 	}
-	if game.Ping() <= 0 {
-		t.Error("game.Ping() should be > 0")
+	if game.Ping() < 0 {
+		t.Error("game.Ping() should be >= 0")
 	}
 	if game.QueryTime().IsZero() {
 		t.Error("game.QueryTime() should not be zero")

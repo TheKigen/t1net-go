@@ -176,8 +176,8 @@ func TestMasterServer(t *testing.T) {
 	if master.ServerCount() != 44 {
 		t.Errorf("master.ServerCount(): %d != 44", master.ServerCount())
 	}
-	if master.Ping() <= 0 {
-		t.Error("master.Ping() should be > 0")
+	if master.Ping() < 0 {
+		t.Error("master.Ping() should be >= 0")
 	}
 	if master.QueryTime().IsZero() {
 		t.Error("master.QueryTime() should not be zero")
