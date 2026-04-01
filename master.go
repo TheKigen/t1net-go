@@ -1,19 +1,3 @@
-/*
-   Copyright 2022 Max Krivanek
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
-*/
-
 package t1net
 
 import (
@@ -21,266 +5,180 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
-	"net"
-	"sync"
 	"time"
 )
 
-type MasterServer struct {
-	mutex        sync.RWMutex
-	address      string
-	ip           net.IP
-	port         int
-	name         string
-	motd         string
-	serverCount  uint16
-	servers      []string
-	ping         time.Duration
-	queryTime    time.Time
-	totalPackets  int
-	minPacketSize int
-}
+const maxServers = 1000
 
-func (m *MasterServer) MinPacketSize() (minPacketSize int) {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	return m.minPacketSize
-}
+// MasterQuery sends a master server list request to the given address and returns the parsed result.
+// address must be in "host:port" format. opts may be nil for defaults.
+func MasterQuery(address string, opts *QueryOptions) (*MasterResult, error) {
+	cfg := applyDefaults(opts)
 
-func (m *MasterServer) SetMinPacketSize(minPacketSize int) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-	m.minPacketSize = minPacketSize
-}
-
-func (m *MasterServer) Ping() (ping time.Duration) {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	return m.ping
-}
-
-func (m *MasterServer) QueryTime() (queryTime time.Time) {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	return m.queryTime
-}
-
-func (m *MasterServer) Name() (name string) {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	return m.name
-}
-
-func (m *MasterServer) MOTD() (motd string) {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	return m.motd
-}
-
-func (m *MasterServer) ServerCount() (serverCount uint16) {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	return m.serverCount
-}
-
-func (m *MasterServer) Servers() (servers []string) {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	servers = make([]string, len(m.servers))
-	copy(servers, m.servers)
-	return
-}
-
-func (m *MasterServer) Query(timeout time.Duration, localAddress string) (err error) {
-	if timeout == 0 {
-		timeout = 5 * time.Second
-	}
-
-	var localAddr *net.UDPAddr
-
-	if len(localAddress) != 0 {
-		localAddr, err = net.ResolveUDPAddr("udp4", localAddress)
-		if err != nil {
-			return
-		}
-	}
-
-	remoteAddr, err := net.ResolveUDPAddr("udp4", m.address)
+	conn, remoteAddr, err := openConn(address, cfg)
 	if err != nil {
-		return
+		return nil, err
 	}
+	defer func() {
+		if cerr := conn.Close(); cerr != nil {
+			_ = cerr
+		}
+	}()
 
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
+	// Build 8-byte query packet: [0x10, 0x03, 0xFF, 0x00, key_lo, key_hi, 0x00, 0x00]
+	key := uint16(rand.Uint32()) //nolint:gosec
+	sendBuffer := []byte{0x10, 0x03, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00}
+	binary.LittleEndian.PutUint16(sendBuffer[4:6], key)
+	sendBuffer = PadPacket(sendBuffer, cfg.MinPacketSize)
 
-	m.ip = remoteAddr.IP
-	m.port = remoteAddr.Port
-	m.serverCount = 0
-	m.servers = nil
-
-	c, err := net.DialUDP("udp4", localAddr, remoteAddr)
+	// Send.
+	sendTime, err := sendQuery(conn, remoteAddr, sendBuffer)
 	if err != nil {
-		return
+		return nil, err
 	}
 
-	defer func(c *net.UDPConn) {
-		err := c.Close()
-		if err != nil {
-			fmt.Printf("t1net.MasterServer.Query: Error closing connection: %v\n", err)
-		}
-	}(c)
-
-	key := uint16(rand.Uint32())
-	sendBuffer := []byte{
-		0x10, // Version
-		0x03, // Type - Master Server request
-		0xFF, // Packet Number
-		0x00, // Packet Total
-		0x00, // Key 1
-		0x00, // Key 2
-		0x00, // ID 1
-		0x00, // ID 2
+	// Set deadline.
+	if err = conn.SetDeadline(time.Now().Add(cfg.Timeout)); err != nil {
+		return nil, err
 	}
 
-	binary.BigEndian.PutUint16(sendBuffer[4:6], key)
+	result := &MasterResult{}
+	var pingRecorded bool
+	totalPackets := 0
 
-	m.queryTime = time.Now()
-	pingCalculated := false
-	_, err = c.Write(PadPacket(sendBuffer, m.minPacketSize))
-	if err != nil {
-		return
-	}
+	readBuffer := make([]byte, 65535)
 
-	recvBuf := make([]byte, 1024)
-	m.totalPackets = 1
-	var (
-		n                            int
-		addr                         *net.UDPAddr
-		b, packetNumber, packetTotal byte
-		ip                           net.IP
-		port                         uint16
-	)
-	for p := 0; p < m.totalPackets; p++ {
-		err = c.SetDeadline(time.Now().Add(timeout))
-		if err != nil {
-			return
-		}
-		n, addr, err = c.ReadFromUDP(recvBuf)
-		if err != nil {
-			return
+	for p := 0; ; p++ {
+		n, rerr := readResponse(conn, remoteAddr, readBuffer)
+		if rerr != nil {
+			if p == 0 {
+				return nil, rerr
+			}
+			// Timeout after receiving some packets — treat as done.
+			break
 		}
 
-		if !addr.IP.Equal(remoteAddr.IP) || addr.Port != remoteAddr.Port {
-			return fmt.Errorf("t1net.MasterServer.Query: Reply address mismatch: %s != %s", remoteAddr.String(), addr.String())
+		if !pingRecorded {
+			result.Ping = time.Since(sendTime)
+			pingRecorded = true
 		}
 
-		if !pingCalculated {
-			pingCalculated = true
-			m.ping = time.Since(m.queryTime)
-		}
+		reader := bytes.NewReader(readBuffer[:n])
 
-		reader := bytes.NewReader(recvBuf[0:n])
-
-		b, err = reader.ReadByte()
-		if err != nil {
-			return
+		b, berr := reader.ReadByte()
+		if berr != nil {
+			return nil, berr
 		}
 		if b != 0x10 {
-			return fmt.Errorf("t1net.MasterServer.Query: Reply byte 0: %#v != 0x10", b)
+			return nil, fmt.Errorf("expected 0x10 at byte 0, got %#x", b)
 		}
 
-		b, err = reader.ReadByte()
-		if err != nil {
-			return
+		b, berr = reader.ReadByte()
+		if berr != nil {
+			return nil, berr
 		}
 		if b != 0x06 {
-			return fmt.Errorf("t1net.MasterServer.Query: Reply byte 1: %#v != 0x06", b)
+			return nil, fmt.Errorf("expected 0x06 at byte 1, got %#x", b)
 		}
 
-		// Packet Number
-		packetNumber, err = reader.ReadByte()
-		if err != nil {
-			return
+		// Byte 2: packet number (1-based, 1-5).
+		packetNumber, berr := reader.ReadByte()
+		if berr != nil {
+			return nil, berr
 		}
-		if packetNumber < 1 || packetNumber > 5 {
-			return fmt.Errorf("t1net.MasterServer.Query: Invalid packet number: %d", packetNumber)
-		}
-
-		// Total number of Packets
-		packetTotal, err = reader.ReadByte()
-		if err != nil {
-			return err
-		}
-		if packetTotal < 1 || packetTotal > 5 {
-			return fmt.Errorf("t1net.MasterServer.Query: Invalid total packet number: %d", packetTotal)
+		if packetNumber == 0 {
+			return nil, fmt.Errorf("invalid packet number: %d", packetNumber)
 		}
 
+		// Byte 3: total packets (1-5).
+		packetTotal, berr := reader.ReadByte()
+		if berr != nil {
+			return nil, berr
+		}
+		if packetTotal == 0 {
+			return nil, fmt.Errorf("invalid total packet number: %d", packetTotal)
+		}
 		if packetNumber > packetTotal {
-			return fmt.Errorf("t1net.MasterServer.Query: Packet Number is greater than total: %d / %d", packetNumber, packetTotal)
+			return nil, fmt.Errorf("packet number %d greater than total %d", packetNumber, packetTotal)
 		}
 
-		var recvKey uint16
-		err = binary.Read(reader, binary.BigEndian, &recvKey)
-		if err != nil {
-			return
-		}
-		if key != recvKey {
-			return fmt.Errorf("t1net.MasterServer.Query: Key mismatch: %d : %d", recvKey, key)
+		// Set totalPackets from first packet.
+		if p == 0 {
+			totalPackets = int(packetTotal)
 		}
 
-		m.totalPackets = int(packetTotal)
-
-		b, err = reader.ReadByte()
-		if err != nil {
-			return
+		// Bytes 4-5: key echo (little-endian).
+		var readKey uint16
+		if berr = binary.Read(reader, binary.LittleEndian, &readKey); berr != nil {
+			return nil, berr
 		}
-		if b != 0 {
-			return fmt.Errorf("t1net.MasterServer.Query: Reply byte 6: %#v != 0x00", b)
+		if key != readKey {
+			return nil, fmt.Errorf("key mismatch: sent %d, got %d", key, readKey)
 		}
 
-		b, err = reader.ReadByte()
-		if err != nil {
-			return
+		b, berr = reader.ReadByte()
+		if berr != nil {
+			return nil, berr
+		}
+		if b != 0x00 {
+			return nil, fmt.Errorf("expected 0x00 at byte 6, got %#x", b)
+		}
+
+		b, berr = reader.ReadByte()
+		if berr != nil {
+			return nil, berr
 		}
 		if b != 0x66 {
-			return fmt.Errorf("t1net.MasterServer.Query: Reply byte 7: %#v != 0x66", b)
+			return nil, fmt.Errorf("expected 0x66 at byte 7, got %#x", b)
 		}
 
-		m.name, err = ReadPascalString(reader)
-		if err != nil {
-			return
+		// Name (Pascal string).
+		name, berr := ReadPascalString(reader)
+		if berr != nil {
+			return nil, berr
+		}
+		if p == 0 {
+			result.Name = name
 		}
 
-		m.motd, err = ReadPascalString(reader)
-		if err != nil {
-			return
+		// MOTD (Pascal string).
+		motd, berr := ReadPascalString(reader)
+		if berr != nil {
+			return nil, berr
+		}
+		if p == 0 {
+			result.MOTD = motd
 		}
 
+		// Server count for this packet (big-endian).
 		var serverCount uint16
-		err = binary.Read(reader, binary.BigEndian, &serverCount)
-		if err != nil {
-			return
+		if berr = binary.Read(reader, binary.BigEndian, &serverCount); berr != nil {
+			return nil, berr
 		}
+		result.ServerCount += uint32(serverCount)
 
-		m.serverCount += serverCount
-
+		// Read server addresses.
 		for i := uint16(0); i < serverCount; i++ {
-			ip, port, err = ReadAddressPort(reader)
-			if err != nil {
-				return
+			ip, port, berr := ReadAddressPort(reader)
+			if berr != nil {
+				return nil, berr
 			}
-
-			m.servers = append(m.servers, fmt.Sprintf("%s:%d", ip.String(), port))
+			result.Servers = append(result.Servers, fmt.Sprintf("%s:%d", ip.String(), port))
+			if len(result.Servers) > maxServers {
+				return nil, fmt.Errorf("server count exceeds maximum: %d", len(result.Servers))
+			}
 		}
 
+		// Leftover bytes check.
 		if reader.Len() != 0 {
-			return fmt.Errorf("t1net.MasterServer.Query: %d left over bytes", reader.Len())
+			return nil, fmt.Errorf("%d left over bytes", reader.Len())
+		}
+
+		// Stop after reading all expected packets.
+		if p+1 >= totalPackets {
+			break
 		}
 	}
 
-	return
-}
-
-func NewMasterServer(address string) *MasterServer {
-	return &MasterServer{address: address, minPacketSize: DefaultMinPacketSize}
+	return result, nil
 }
