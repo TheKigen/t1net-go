@@ -21,6 +21,7 @@ package t1net
 
 import (
 	"net"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -94,7 +95,17 @@ type Player struct {
 // into Teams and Players slices. Score entries use a two-character prefix:
 // first char '0' = team section, '1' = player section; second char '0' = data, '1' = header.
 // Fields within each entry are tab-delimited.
+//
+// The Score field is preserved as the raw tab-delimited string (everything
+// after the name column) so that format specifiers and mod-specific columns
+// remain intact. Team, Ping, and PL are extracted separately using column
+// positions discovered from the header row, matching the GameSpy query output.
 func parseScoreEntries(result *GameResult) {
+	// Column indices for player fields, discovered from the header row.
+	// -1 means not found. Indices are relative to the data after the name
+	// column (i.e. within the Score string fields).
+	teamCol, pingCol, plCol := -1, -1, -1
+
 	for _, entry := range result.ScoreEntries {
 		if len(entry) < 2 {
 			continue
@@ -103,29 +114,96 @@ func parseScoreEntries(result *GameResult) {
 		rowType := entry[1]
 		data := entry[2:]
 
-		// Skip headers and empty data rows
-		if rowType == '1' || data == "" {
+		if data == "" {
 			continue
 		}
 
-		fields := strings.Split(data, "\t")
+		if rowType == '1' {
+			// Header row — discover column positions for player fields.
+			if section == '1' {
+				teamCol, pingCol, plCol = parsePlayerHeader(data)
+			}
+			continue
+		}
+
+		// Split only on the first tab to extract the name; preserve the
+		// remainder as the raw score string so that tabs, format specifiers
+		// (%n, %p, %l, %t), and mod-specific columns are kept intact.
+		name, score, _ := strings.Cut(data, "\t")
 
 		switch section {
 		case '0': // team entry
-			team := Team{Name: strings.TrimSpace(fields[0])}
-			if len(fields) > 1 {
-				team.Score = strings.TrimSpace(fields[1])
-			}
-			result.Teams = append(result.Teams, team)
+			result.Teams = append(result.Teams, Team{
+				Name:  strings.TrimSpace(name),
+				Score: score,
+			})
 		case '1': // player entry
-			player := Player{Name: strings.TrimSpace(fields[0])}
-			if len(fields) > 2 {
-				player.Score = strings.TrimSpace(fields[2])
+			player := Player{
+				Name:  strings.TrimSpace(name),
+				Score: score,
+			}
+			fields := strings.Split(score, "\t")
+			if teamCol >= 0 && teamCol < len(fields) {
+				teamName := strings.TrimSpace(fields[teamCol])
+				for i, tm := range result.Teams {
+					if tm.Name == teamName {
+						player.Team = uint8(i)
+						break
+					}
+				}
+			}
+			if pingCol >= 0 && pingCol < len(fields) {
+				if v, err := strconv.ParseUint(strings.TrimSpace(fields[pingCol]), 10, 8); err == nil {
+					player.Ping = uint8(v)
+				}
+			}
+			if plCol >= 0 && plCol < len(fields) {
+				if v, err := strconv.ParseUint(strings.TrimSpace(fields[plCol]), 10, 8); err == nil {
+					player.PL = uint8(v)
+				}
 			}
 			result.Players = append(result.Players, player)
 		}
 	}
 	result.NumTeams = uint8(len(result.Teams))
+}
+
+// parsePlayerHeader parses a player header row to find the column indices
+// for Team, Ping, and PL. Column names may have a leading Tribes format/color
+// byte which is stripped before matching. The returned indices are relative
+// to the fields after the name column (the Score string split on tabs).
+func parsePlayerHeader(data string) (teamCol, pingCol, plCol int) {
+	teamCol, pingCol, plCol = -1, -1, -1
+	// Skip the first column (player name) — the remaining columns correspond
+	// to the tab-split fields of the Score string.
+	_, rest, ok := strings.Cut(data, "\t")
+	if !ok {
+		return
+	}
+	for i, col := range strings.Split(rest, "\t") {
+		col = strings.TrimSpace(col)
+		// Try matching both with and without a leading format byte.
+		if matchHeaderCol(col, "team") {
+			teamCol = i
+		} else if matchHeaderCol(col, "ping") {
+			pingCol = i
+		} else if matchHeaderCol(col, "pl") {
+			plCol = i
+		}
+	}
+	return
+}
+
+// matchHeaderCol returns true if col matches target case-insensitively,
+// optionally after stripping a single leading Tribes format/color byte.
+func matchHeaderCol(col, target string) bool {
+	if strings.EqualFold(col, target) {
+		return true
+	}
+	if len(col) > 1 && strings.EqualFold(col[1:], target) {
+		return true
+	}
+	return false
 }
 
 // packetConn is the interface for UDP communication.

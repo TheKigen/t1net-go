@@ -151,8 +151,8 @@ func TestParseScoreEntries(t *testing.T) {
 	if result.Teams[0].Name != "Blood Eagle" {
 		t.Errorf("Teams[0].Name: got %q, want %q", result.Teams[0].Name, "Blood Eagle")
 	}
-	if result.Teams[0].Score != "1" {
-		t.Errorf("Teams[0].Score: got %q, want %q", result.Teams[0].Score, "1")
+	if want := "  1\t  1"; result.Teams[0].Score != want {
+		t.Errorf("Teams[0].Score: got %q, want %q", result.Teams[0].Score, want)
 	}
 	if result.Teams[1].Name != "Diamond Sword" {
 		t.Errorf("Teams[1].Name: got %q, want %q", result.Teams[1].Name, "Diamond Sword")
@@ -164,11 +164,32 @@ func TestParseScoreEntries(t *testing.T) {
 	if result.Players[0].Name != "stefano" {
 		t.Errorf("Players[0].Name: got %q, want %q", result.Players[0].Name, "stefano")
 	}
-	if result.Players[0].Score != "7" {
-		t.Errorf("Players[0].Score: got %q, want %q", result.Players[0].Score, "7")
+	if want := "Blood Eagle\t  7\t123\t0"; result.Players[0].Score != want {
+		t.Errorf("Players[0].Score: got %q, want %q", result.Players[0].Score, want)
+	}
+	if result.Players[0].Team != 0 {
+		t.Errorf("Players[0].Team: got %d, want 0", result.Players[0].Team)
+	}
+	if result.Players[0].Ping != 123 {
+		t.Errorf("Players[0].Ping: got %d, want 123", result.Players[0].Ping)
+	}
+	if result.Players[0].PL != 0 {
+		t.Errorf("Players[0].PL: got %d, want 0", result.Players[0].PL)
 	}
 	if result.Players[1].Name != "Noodles" {
 		t.Errorf("Players[1].Name: got %q, want %q", result.Players[1].Name, "Noodles")
+	}
+	if want := "Diamond Sword\t  7\t39\t0"; result.Players[1].Score != want {
+		t.Errorf("Players[1].Score: got %q, want %q", result.Players[1].Score, want)
+	}
+	if result.Players[1].Team != 1 {
+		t.Errorf("Players[1].Team: got %d, want 1", result.Players[1].Team)
+	}
+	if result.Players[1].Ping != 39 {
+		t.Errorf("Players[1].Ping: got %d, want 39", result.Players[1].Ping)
+	}
+	if result.Players[1].PL != 0 {
+		t.Errorf("Players[1].PL: got %d, want 0", result.Players[1].PL)
 	}
 }
 
