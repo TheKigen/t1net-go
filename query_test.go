@@ -151,7 +151,7 @@ func TestParseScoreEntries(t *testing.T) {
 	if result.Teams[0].Name != "Blood Eagle" {
 		t.Errorf("Teams[0].Name: got %q, want %q", result.Teams[0].Name, "Blood Eagle")
 	}
-	if want := "  1\t  1"; result.Teams[0].Score != want {
+	if want := "%t\t  1\t  1"; result.Teams[0].Score != want {
 		t.Errorf("Teams[0].Score: got %q, want %q", result.Teams[0].Score, want)
 	}
 	if result.Teams[1].Name != "Diamond Sword" {
@@ -164,7 +164,7 @@ func TestParseScoreEntries(t *testing.T) {
 	if result.Players[0].Name != "stefano" {
 		t.Errorf("Players[0].Name: got %q, want %q", result.Players[0].Name, "stefano")
 	}
-	if want := "Blood Eagle\t  7\t123\t0"; result.Players[0].Score != want {
+	if want := "%n\tBlood Eagle\t  7\t%p\t%l"; result.Players[0].Score != want {
 		t.Errorf("Players[0].Score: got %q, want %q", result.Players[0].Score, want)
 	}
 	if result.Players[0].Team != 0 {
@@ -179,7 +179,7 @@ func TestParseScoreEntries(t *testing.T) {
 	if result.Players[1].Name != "Noodles" {
 		t.Errorf("Players[1].Name: got %q, want %q", result.Players[1].Name, "Noodles")
 	}
-	if want := "Diamond Sword\t  7\t39\t0"; result.Players[1].Score != want {
+	if want := "%n\tDiamond Sword\t  7\t%p\t%l"; result.Players[1].Score != want {
 		t.Errorf("Players[1].Score: got %q, want %q", result.Players[1].Score, want)
 	}
 	if result.Players[1].Team != 1 {
@@ -207,6 +207,118 @@ func TestParseScoreEntriesEmpty(t *testing.T) {
 	}
 	if len(result.Players) != 0 {
 		t.Errorf("Players should be nil, got %d", len(result.Players))
+	}
+}
+
+func TestMergeGameSpyData(t *testing.T) {
+	t.Parallel()
+
+	native := &GameResult{
+		NumTeams: 2,
+		Teams: []Team{
+			{Name: "Blood Eagle", Score: "%t\t  1\t  2"},
+			{Name: "Diamond Sword", Score: "%t\t  0\t  2"},
+		},
+		Players: []Player{
+			{Name: "Alice", Team: 0, Score: "%n\tBlood Eagle\t  5\t%p\t%l", Ping: 50, PL: 1},
+			{Name: "Bob", Team: 1, Score: "%n\tDiamond Sword\t  3\t%p\t%l", Ping: 60, PL: 2},
+			{Name: "Charlie", Team: 255, Score: "%n\tObs\t  0\t%p\t%l", Ping: 70, PL: 0},
+		},
+	}
+
+	gamespy := &GameResult{
+		NumTeams: 3,
+		Teams: []Team{
+			{Name: "Blood Eagle", Score: "%t\t  1\t  2"},
+			{Name: "Diamond Sword", Score: "%t\t  0\t  2"},
+			{Name: "Children of the Phoenix", Score: ""},
+		},
+		Players: []Player{
+			{Name: "Alice", Team: 0, Ping: 10, PL: 0},
+			{Name: "Bob", Team: 1, Ping: 15, PL: 1},
+			{Name: "Charlie", Team: 255, Ping: 20, PL: 0},
+		},
+	}
+
+	mergeGameSpyData(native, gamespy)
+
+	// Ping/PL/Team should come from GameSpy.
+	if native.Players[0].Ping != 10 {
+		t.Errorf("Alice Ping: got %d, want 10", native.Players[0].Ping)
+	}
+	if native.Players[0].PL != 0 {
+		t.Errorf("Alice PL: got %d, want 0", native.Players[0].PL)
+	}
+	if native.Players[1].Ping != 15 {
+		t.Errorf("Bob Ping: got %d, want 15", native.Players[1].Ping)
+	}
+	if native.Players[1].PL != 1 {
+		t.Errorf("Bob PL: got %d, want 1", native.Players[1].PL)
+	}
+	if native.Players[2].Ping != 20 {
+		t.Errorf("Charlie Ping: got %d, want 20", native.Players[2].Ping)
+	}
+	if native.Players[2].Team != 255 {
+		t.Errorf("Charlie Team: got %d, want 255", native.Players[2].Team)
+	}
+
+	// Score should be preserved from native (not overwritten).
+	if native.Players[0].Score != "%n\tBlood Eagle\t  5\t%p\t%l" {
+		t.Errorf("Alice Score changed: got %q", native.Players[0].Score)
+	}
+
+	// Team list should use GameSpy's (more teams).
+	if native.NumTeams != 3 {
+		t.Errorf("NumTeams: got %d, want 3", native.NumTeams)
+	}
+	if len(native.Teams) != 3 {
+		t.Errorf("Teams length: got %d, want 3", len(native.Teams))
+	}
+}
+
+func TestMergeGameSpyData_MissingPlayer(t *testing.T) {
+	t.Parallel()
+
+	native := &GameResult{
+		Players: []Player{
+			{Name: "Alice", Ping: 50},
+			{Name: "Unknown", Ping: 70},
+		},
+	}
+	gamespy := &GameResult{
+		Players: []Player{
+			{Name: "Alice", Ping: 10},
+			// "Unknown" not present in GameSpy — native values should remain.
+		},
+	}
+
+	mergeGameSpyData(native, gamespy)
+
+	if native.Players[0].Ping != 10 {
+		t.Errorf("Alice Ping: got %d, want 10", native.Players[0].Ping)
+	}
+	if native.Players[1].Ping != 70 {
+		t.Errorf("Unknown Ping: got %d, want 70 (unchanged)", native.Players[1].Ping)
+	}
+}
+
+func TestMergeGameSpyData_FewerTeams(t *testing.T) {
+	t.Parallel()
+
+	native := &GameResult{
+		NumTeams: 3,
+		Teams:    []Team{{Name: "A"}, {Name: "B"}, {Name: "C"}},
+	}
+	gamespy := &GameResult{
+		NumTeams: 2,
+		Teams:    []Team{{Name: "A"}, {Name: "B"}},
+	}
+
+	mergeGameSpyData(native, gamespy)
+
+	// Native has more teams — should keep native's list.
+	if native.NumTeams != 3 {
+		t.Errorf("NumTeams: got %d, want 3", native.NumTeams)
 	}
 }
 

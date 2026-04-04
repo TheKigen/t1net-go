@@ -96,10 +96,11 @@ type Player struct {
 // first char '0' = team section, '1' = player section; second char '0' = data, '1' = header.
 // Fields within each entry are tab-delimited.
 //
-// The Score field is preserved as the raw tab-delimited string (everything
-// after the name column) so that format specifiers and mod-specific columns
-// remain intact. Team, Ping, and PL are extracted separately using column
-// positions discovered from the header row, matching the GameSpy query output.
+// The Player Score field is reconstructed to match the GameSpy query format:
+// the player name column is replaced with %n, and any Ping/PL columns
+// (identified from the header) are replaced with %p/%l placeholders.
+// The actual Ping, PL, and Team values are extracted into their respective
+// struct fields.
 func parseScoreEntries(result *GameResult) {
 	// Column indices for player fields, discovered from the header row.
 	// -1 means not found. Indices are relative to the data after the name
@@ -126,21 +127,20 @@ func parseScoreEntries(result *GameResult) {
 			continue
 		}
 
-		// Split only on the first tab to extract the name; preserve the
-		// remainder as the raw score string so that tabs, format specifiers
-		// (%n, %p, %l, %t), and mod-specific columns are kept intact.
+		// Split only on the first tab to extract the name; the remainder
+		// is the raw score fields which we will reconstruct below.
 		name, score, _ := strings.Cut(data, "\t")
 
 		switch section {
 		case '0': // team entry
 			result.Teams = append(result.Teams, Team{
 				Name:  strings.TrimSpace(name),
-				Score: score,
+				Score: "%t\t" + score,
 			})
 		case '1': // player entry
 			player := Player{
-				Name:  strings.TrimSpace(name),
-				Score: score,
+				Name: strings.TrimSpace(name),
+				Team: 255, // default to unmatched, like GameSpy observer
 			}
 			fields := strings.Split(score, "\t")
 			if teamCol >= 0 && teamCol < len(fields) {
@@ -156,12 +156,17 @@ func parseScoreEntries(result *GameResult) {
 				if v, err := strconv.ParseUint(strings.TrimSpace(fields[pingCol]), 10, 8); err == nil {
 					player.Ping = uint8(v)
 				}
+				fields[pingCol] = "%p"
 			}
 			if plCol >= 0 && plCol < len(fields) {
 				if v, err := strconv.ParseUint(strings.TrimSpace(fields[plCol]), 10, 8); err == nil {
 					player.PL = uint8(v)
 				}
+				fields[plCol] = "%l"
 			}
+			// Reconstruct score to match GameSpy format: %n prefix,
+			// with Ping/PL columns replaced by format specifiers.
+			player.Score = "%n\t" + strings.Join(fields, "\t")
 			result.Players = append(result.Players, player)
 		}
 	}
@@ -204,6 +209,80 @@ func matchHeaderCol(col, target string) bool {
 		return true
 	}
 	return false
+}
+
+// FullQuery performs both a native GameInfoQuery and a GameSpy query
+// concurrently, then merges the results. The native query provides the base
+// result with full-length strings and score entries. The GameSpy query, when
+// it succeeds, supplements per-player Ping, PL, and Team values (which are
+// read from dedicated binary fields in the GameSpy protocol and are more
+// accurate than the score-entry-derived values from the native query).
+//
+// The native query is expected to always succeed; the GameSpy query may fail
+// (some ISPs block the short GameSpy packet). If the native query fails, the
+// error is returned. If only the GameSpy query fails, the native result is
+// returned without supplemental data.
+func FullQuery(address string, opts *QueryOptions) (*GameResult, error) {
+	type queryResult struct {
+		result *GameResult
+		err    error
+	}
+
+	nativeCh := make(chan queryResult, 1)
+	gamespyCh := make(chan queryResult, 1)
+
+	go func() {
+		r, err := GameInfoQuery(address, opts)
+		nativeCh <- queryResult{r, err}
+	}()
+	go func() {
+		r, err := GameSpyQuery(address, opts)
+		gamespyCh <- queryResult{r, err}
+	}()
+
+	native := <-nativeCh
+	if native.err != nil {
+		return nil, native.err
+	}
+	result := native.result
+
+	gamespy := <-gamespyCh
+	if gamespy.err != nil || gamespy.result == nil {
+		return result, nil
+	}
+
+	mergeGameSpyData(result, gamespy.result)
+	return result, nil
+}
+
+// mergeGameSpyData overlays data from a GameSpy query result onto a native
+// query result. Per-player Ping, PL, and Team are taken from GameSpy (where
+// they come from dedicated binary fields). The GameSpy team list is used if
+// it contains more teams than the native result (e.g. observer teams that
+// have no score entries).
+func mergeGameSpyData(native, gamespy *GameResult) {
+	// Build a name->player lookup from the GameSpy result.
+	gsPlayers := make(map[string]*Player, len(gamespy.Players))
+	for i := range gamespy.Players {
+		gsPlayers[gamespy.Players[i].Name] = &gamespy.Players[i]
+	}
+
+	// Overlay per-player fields.
+	for i := range native.Players {
+		gsp, ok := gsPlayers[native.Players[i].Name]
+		if !ok {
+			continue
+		}
+		native.Players[i].Ping = gsp.Ping
+		native.Players[i].PL = gsp.PL
+		native.Players[i].Team = gsp.Team
+	}
+
+	// Use GameSpy team list if it has more teams (e.g. observer team).
+	if len(gamespy.Teams) > len(native.Teams) {
+		native.Teams = gamespy.Teams
+		native.NumTeams = gamespy.NumTeams
+	}
 }
 
 // packetConn is the interface for UDP communication.
