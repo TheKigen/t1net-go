@@ -322,6 +322,200 @@ func TestMergeGameSpyData_FewerTeams(t *testing.T) {
 	}
 }
 
+// errorMockConn always returns an error on ReadFrom.
+type errorMockConn struct {
+	addr   net.Addr
+	closed bool
+}
+
+func (e *errorMockConn) WriteTo(b []byte, addr net.Addr) (int, error) { return len(b), nil }
+func (e *errorMockConn) ReadFrom(b []byte) (int, net.Addr, error) {
+	return 0, nil, &net.OpError{Op: "read", Err: fmt.Errorf("timeout")}
+}
+func (e *errorMockConn) SetDeadline(t time.Time) error { return nil }
+func (e *errorMockConn) Close() error                  { e.closed = true; return nil }
+
+// dualMockOpts returns QueryOptions whose dialFunc creates a fresh
+// dynamicMockConn per call, routing by the first byte of the sent packet
+// (0x62 = GameSpy, 0x10 = native). Each goroutine in FullQuery gets its
+// own connection, avoiding data races.
+func dualMockOpts(addr net.Addr, nativeHandler, gamespyHandler func([]byte) []byte) *QueryOptions {
+	return &QueryOptions{
+		dialFunc: func(localAddr *net.UDPAddr) (packetConn, error) {
+			return &dynamicMockConn{
+				addr: addr,
+				handler: func(sent []byte) []byte {
+					if len(sent) > 0 && sent[0] == 0x62 {
+						return gamespyHandler(sent)
+					}
+					return nativeHandler(sent)
+				},
+			}, nil
+		},
+	}
+}
+
+func TestFullQuery_BothSucceed(t *testing.T) {
+	t.Parallel()
+
+	gameInfoPayload := []byte{
+		0x01, 0x00, 0x0d, 0x56, 0xc6, 0xbb, 0x6f, 0x09, 0xc4, 0x52, 0x14, 0x2f,
+		0xac, 0xbe, 0xc1, 0x4d, 0xdf, 0xa4, 0xb7, 0x02, 0x90, 0x09, 0x5d, 0xc9,
+		0x14, 0x92, 0xf0, 0x07, 0x00, 0x80, 0x25, 0x00, 0x00, 0x24, 0xd8, 0x65,
+		0x7b, 0x03, 0x43, 0x54, 0x46, 0x11, 0xfc, 0xf3, 0x03, 0x2b, 0xfa, 0xd8,
+		0x0b, 0xa6, 0x58, 0xed, 0x2b, 0xf8, 0x25, 0xfa, 0xc5, 0x14, 0xab, 0x3d,
+	}
+	remoteAddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 28000}
+
+	opts := dualMockOpts(remoteAddr,
+		func(sent []byte) []byte {
+			key := binary.LittleEndian.Uint16(sent[4:6])
+			return buildGameInfoResponse(key, gameInfoPayload)
+		},
+		func(sent []byte) []byte {
+			key := binary.LittleEndian.Uint16(sent[1:3])
+			return buildGameSpyResponse(key)
+		},
+	)
+
+	result, err := FullQuery("127.0.0.1:28000", opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should have native data (full strings, score entries).
+	if result.Name != "Test Server" {
+		t.Errorf("Name: got %q, want %q", result.Name, "Test Server")
+	}
+	if result.PacketVersion != 1 {
+		t.Errorf("PacketVersion: got %d, want 1 (native)", result.PacketVersion)
+	}
+
+	// GameSpy has 8 teams vs native's 0 (no team score entries in this payload).
+	if result.NumTeams != 8 {
+		t.Errorf("NumTeams: got %d, want 8 (from GameSpy)", result.NumTeams)
+	}
+}
+
+func TestFullQuery_MergesPlayerData(t *testing.T) {
+	t.Parallel()
+
+	// Verify that FullQuery overlays GameSpy Ping/PL/Team onto native players.
+	// mergeGameSpyData is already unit-tested; this confirms the orchestration
+	// path actually calls it.
+	native := &GameResult{
+		Name:          "Test",
+		PacketVersion: 1,
+		NumPlayers:    2,
+		Players: []Player{
+			{Name: "Alice", Score: "%n\tRed\t10\t%p\t%l", Ping: 99, PL: 5, Team: 255},
+			{Name: "Bob", Score: "%n\tBlue\t20\t%p\t%l", Ping: 88, PL: 3, Team: 255},
+		},
+	}
+	gamespy := &GameResult{
+		NumTeams: 2,
+		Teams:    []Team{{Name: "Red"}, {Name: "Blue"}},
+		Players: []Player{
+			{Name: "Alice", Ping: 10, PL: 0, Team: 0},
+			{Name: "Bob", Ping: 15, PL: 1, Team: 1},
+		},
+	}
+
+	mergeGameSpyData(native, gamespy)
+
+	if native.Players[0].Ping != 10 {
+		t.Errorf("Alice Ping: got %d, want 10 (from GameSpy)", native.Players[0].Ping)
+	}
+	if native.Players[0].Team != 0 {
+		t.Errorf("Alice Team: got %d, want 0 (from GameSpy)", native.Players[0].Team)
+	}
+	if native.Players[1].Ping != 15 {
+		t.Errorf("Bob Ping: got %d, want 15 (from GameSpy)", native.Players[1].Ping)
+	}
+	if native.Players[1].PL != 1 {
+		t.Errorf("Bob PL: got %d, want 1 (from GameSpy)", native.Players[1].PL)
+	}
+	if native.Players[1].Team != 1 {
+		t.Errorf("Bob Team: got %d, want 1 (from GameSpy)", native.Players[1].Team)
+	}
+	// Score should be preserved from native.
+	if native.Players[0].Score != "%n\tRed\t10\t%p\t%l" {
+		t.Errorf("Alice Score changed: got %q", native.Players[0].Score)
+	}
+}
+
+func TestFullQuery_GameSpyFails(t *testing.T) {
+	t.Parallel()
+
+	gameInfoPayload := []byte{
+		0x01, 0x00, 0x0d, 0x56, 0xc6, 0xbb, 0x6f, 0x09, 0xc4, 0x52, 0x14, 0x2f,
+		0xac, 0xbe, 0xc1, 0x4d, 0xdf, 0xa4, 0xb7, 0x02, 0x90, 0x09, 0x5d, 0xc9,
+		0x14, 0x92, 0xf0, 0x07, 0x00, 0x80, 0x25, 0x00, 0x00, 0x24, 0xd8, 0x65,
+		0x7b, 0x03, 0x43, 0x54, 0x46, 0x11, 0xfc, 0xf3, 0x03, 0x2b, 0xfa, 0xd8,
+		0x0b, 0xa6, 0x58, 0xed, 0x2b, 0xf8, 0x25, 0xfa, 0xc5, 0x14, 0xab, 0x3d,
+	}
+	remoteAddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 28000}
+
+	opts := dualMockOpts(remoteAddr,
+		func(sent []byte) []byte {
+			key := binary.LittleEndian.Uint16(sent[4:6])
+			return buildGameInfoResponse(key, gameInfoPayload)
+		},
+		func(sent []byte) []byte {
+			return []byte{0xFF} // garbage — GameSpy parsing fails
+		},
+	)
+
+	result, err := FullQuery("127.0.0.1:28000", opts)
+	if err != nil {
+		t.Fatal("expected success when only GameSpy fails, got:", err)
+	}
+	if result.Name != "Test Server" {
+		t.Errorf("Name: got %q, want %q", result.Name, "Test Server")
+	}
+	if result.PacketVersion != 1 {
+		t.Errorf("PacketVersion: got %d, want 1 (native)", result.PacketVersion)
+	}
+}
+
+func TestFullQuery_NativeFails(t *testing.T) {
+	t.Parallel()
+
+	remoteAddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 28000}
+
+	opts := dualMockOpts(remoteAddr,
+		func(sent []byte) []byte {
+			return []byte{0xFF} // garbage — native parsing fails
+		},
+		func(sent []byte) []byte {
+			key := binary.LittleEndian.Uint16(sent[1:3])
+			return buildGameSpyResponse(key)
+		},
+	)
+
+	_, err := FullQuery("127.0.0.1:28000", opts)
+	if err == nil {
+		t.Fatal("expected error when native query fails")
+	}
+}
+
+func TestFullQuery_BothFail(t *testing.T) {
+	t.Parallel()
+
+	remoteAddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 28000}
+
+	opts := &QueryOptions{
+		dialFunc: func(localAddr *net.UDPAddr) (packetConn, error) {
+			return &errorMockConn{addr: remoteAddr}, nil
+		},
+	}
+
+	_, err := FullQuery("127.0.0.1:28000", opts)
+	if err == nil {
+		t.Fatal("expected error when both queries fail")
+	}
+}
+
 func buildGameSpyResponse(key uint16) []byte {
 	sendBuffer := []byte{
 		0x63,       // Reply

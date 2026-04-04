@@ -133,6 +133,9 @@ func parseScoreEntries(result *GameResult) {
 
 		switch section {
 		case '0': // team entry
+			if len(result.Teams) >= 255 { // cap at 255; index 255 is reserved as "no team"
+				continue
+			}
 			result.Teams = append(result.Teams, Team{
 				Name:  strings.TrimSpace(name),
 				Score: "%t\t" + score,
@@ -222,6 +225,9 @@ func matchHeaderCol(col, target string) bool {
 // (some ISPs block the short GameSpy packet). If the native query fails, the
 // error is returned. If only the GameSpy query fails, the native result is
 // returned without supplemental data.
+//
+// Both queries always run to completion; whichever finishes first waits for
+// the other so that UDP sockets and goroutines are cleaned up before returning.
 func FullQuery(address string, opts *QueryOptions) (*GameResult, error) {
 	type queryResult struct {
 		result *GameResult
@@ -240,13 +246,16 @@ func FullQuery(address string, opts *QueryOptions) (*GameResult, error) {
 		gamespyCh <- queryResult{r, err}
 	}()
 
+	// Always drain both channels so goroutines (and their sockets) are
+	// cleaned up before we return, regardless of which query fails.
 	native := <-nativeCh
+	gamespy := <-gamespyCh
+
 	if native.err != nil {
 		return nil, native.err
 	}
 	result := native.result
 
-	gamespy := <-gamespyCh
 	if gamespy.err != nil || gamespy.result == nil {
 		return result, nil
 	}

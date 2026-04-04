@@ -180,7 +180,7 @@ func MasterQuery(address string, opts *QueryOptions) (*MasterResult, error) {
 				return nil, berr
 			}
 			result.Servers = append(result.Servers, fmt.Sprintf("%s:%d", ip.String(), port))
-			if len(result.Servers) > maxServers {
+			if len(result.Servers) >= maxServers {
 				return nil, fmt.Errorf("server count exceeds maximum: %d", len(result.Servers))
 			}
 		}
